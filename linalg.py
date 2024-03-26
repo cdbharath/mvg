@@ -50,3 +50,14 @@ def decompose_projection_matrix(P):
     R = normalize_rotation_matrix(R)
 
     return K, R, t
+    
+def skew(x):
+    """ 
+    Create a skew symmetric matrix.
+    """
+    return np.array([
+        [ 0,    -x[2],  x[1]],
+        [ x[2],  0,    -x[0]],
+        [-x[1],  x[0],  0   ]
+    ])
+
