@@ -19,7 +19,7 @@ def load_ppm(file):
         img = np.fromfile(f, dtype=np.uint8).reshape(height, width, 3)
     return img
     
-def reconstruct(img1_path, img2_path, inrtinsics):
+def reconstruct(img1_path, img2_path, intrinsics):
     '''
     Reconstruct 3D points from two images
     
@@ -42,7 +42,26 @@ def reconstruct(img1_path, img2_path, inrtinsics):
     P1 = np.eye(3, 4)    
     P2 = compute_P2_from_P1(E, P1, points1n[:, 0], points2n[:, 0])
 
-    triangulated_points = linear_triangulation(points1n, points2n, P1, P2)
+    triangulated_points = linear_triangulation(points1n, points2n, P1, P2)    
+    return triangulated_points, (img1, img2, points1, points2, E)
+
+
+if __name__ == '__main__':
+    image1_path = 'images/dino/viff.000.ppm'
+    image2_path = 'images/dino/viff.001.ppm'
+    projection_matrix = scipy.io.loadmat('images/dino/dino_Ps.mat')['P'][0, 0]
+    
+    # TODO Check why this is not accurate
+    intrinsics, _, _ = decompose_projection_matrix(projection_matrix)
+    
+    # Hardcoded intrinsic 
+    intrinsics = np.array([  
+        [2360, 0,    360],
+        [0,    2360, 288],
+        [0,    0,    1]])
+        
+    triangulated_points, correspondances = reconstruct('images/dino/viff.000.ppm', 'images/dino/viff.001.ppm', intrinsics)
+    img1, img2, points1, points2, _ = correspondances
     
     # Display feature correspondences
     fig, ax = plt.subplots(1, 2)
@@ -64,19 +83,3 @@ def reconstruct(img1_path, img2_path, inrtinsics):
     ax.set_zlabel('z axis')
     ax.view_init(elev=135, azim=90)
     plt.show()    
-
-if __name__ == '__main__':
-    image1_path = 'images/dino/viff.000.ppm'
-    image2_path = 'images/dino/viff.001.ppm'
-    projection_matrix = scipy.io.loadmat('images/dino/dino_Ps.mat')['P'][0, 0]
-    
-    # TODO Check why this is not accurate
-    intrinsics, _, _ = decompose_projection_matrix(projection_matrix)
-    
-    # Hardcoded intrinsic 
-    intrinsics = np.array([  
-        [2360, 0,    360],
-        [0,    2360, 288],
-        [0,    0,    1]])
-        
-    reconstruct('images/dino/viff.000.ppm', 'images/dino/viff.001.ppm', intrinsics)
