@@ -104,6 +104,19 @@ def find_sift_correspondences(img1, img2, fit_homography=True):
 
     return src_pts.T, dst_pts.T
 
+def triangulate_point(pt1, pt2, m1, m2):
+    """
+    Triangulation using DLT
+    pt1 and m1 * X are parallel and cross product = 0
+    pt1 x m1 * X  =  pt2 x m2 * X  =  0
+    """
+    A = np.vstack([
+        np.dot(skew(pt1), m1),
+        np.dot(skew(pt2), m2)
+    ])
+    P = find_null_space(A)
+    return P / P[3]
+
 def linear_triangulation(p1, p2, m1, m2):
     """
     Linear triangulation to find the 3D point X
@@ -115,26 +128,17 @@ def linear_triangulation(p1, p2, m1, m2):
     num_points = p1.shape[1]
     res = np.ones((4, num_points))
 
-    # Single correspondance wise triangulation 
+    # Single correspondance wise triangulation
     for i in range(num_points):
-        A = np.asarray([
-            (p1[0, i] * m1[2, :] - m1[0, :]),
-            (p1[1, i] * m1[2, :] - m1[1, :]),
-            (p2[0, i] * m2[2, :] - m2[0, :]),
-            (p2[1, i] * m2[2, :] - m2[1, :])
-        ])
-
-        X = find_null_space(A)
-        res[:, i] = X / X[3]
+        res[:, i] = triangulate_point(p1[:, i], p2[:, i], m1, m2)
 
     return res
 
-# Delete all the code below this line
-        
 def compute_P_from_essential(E):
-    """ Compute the second camera matrix (assuming P1 = [I 0])
-        from an essential matrix. E = [t]R
-    :returns: list of 4 possible camera matrices.
+    """ 
+    Compute the second camera matrix from an essential matrix 
+    E = [t]R (assuming P1 = [I 0])
+    :returns list of 4 possible camera matrices.
     """
     U, S, V = np.linalg.svd(E)
 
@@ -142,25 +146,41 @@ def compute_P_from_essential(E):
     if np.linalg.det(np.dot(U, V)) < 0:
         V = -V
 
-    # create 4 possible camera matrices (Hartley p 258)
+    # Create 4 possible camera matrices (Hartley, Zisserman)
     W = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
-    P2s = [np.vstack((np.dot(U, np.dot(W, V)).T, U[:, 2])).T,
-          np.vstack((np.dot(U, np.dot(W, V)).T, -U[:, 2])).T,
-          np.vstack((np.dot(U, np.dot(W.T, V)).T, U[:, 2])).T,
-          np.vstack((np.dot(U, np.dot(W.T, V)).T, -U[:, 2])).T]
+    P2s = [
+        np.vstack((np.dot(U, np.dot(W, V)).T, U[:, 2])).T,
+        np.vstack((np.dot(U, np.dot(W, V)).T, -U[:, 2])).T,
+        np.vstack((np.dot(U, np.dot(W.T, V)).T, U[:, 2])).T,
+        np.vstack((np.dot(U, np.dot(W.T, V)).T, -U[:, 2])).T
+    ]
 
     return P2s
-        
-def reconstruct_one_point(pt1, pt2, m1, m2):
+    
+def compute_P2_from_P1(E, P1, point1n, point2n):
     """
-        pt1 and m1 * X are parallel and cross product = 0
-        pt1 x m1 * X  =  pt2 x m2 * X  =  0
-    """
-    A = np.vstack([
-        np.dot(skew(pt1), m1),
-        np.dot(skew(pt2), m2)
-    ])
-    U, S, V = np.linalg.svd(A)
-    P = np.ravel(V[-1, :4])
+    Given the essential matrix E, the first camera matrix P1
+    and a normalized point correspondence, calculate the second 
+    camera matrix P2  
+    """            
+    P2s = compute_P_from_essential(E)
+    
+    ind = -1
+    for i, P2 in enumerate(P2s):
+        # Find the correct camera parameters
+        d1 = triangulate_point(
+            point1n, point2n, P1, P2)
+    
+        # Convert P2 from camera view to world view
+        P2_inv = np.linalg.inv(np.vstack([P2, [0, 0, 0, 1]]))
+        d2 = np.dot(P2_inv[:3, :4], d1)
+    
+        # Check Z is positive, i.e. point is in front of cameras
+        if d1[2] > 0 and d2[2] > 0:
+            ind = i
 
-    return P / P[3]
+    assert ind != -1, 'No valid solution found'
+
+    P2 = np.linalg.inv(np.vstack([P2s[ind], [0, 0, 0, 1]]))[:3, :4]
+    return P2
+    

@@ -3,7 +3,8 @@ import scipy
 from matplotlib import pyplot as plt
 import cv2
 
-from mvg import find_sift_correspondences, compute_fundamental_or_essential_matrix, compute_P_from_essential, linear_triangulation, reconstruct_one_point
+from mvg import find_sift_correspondences, compute_fundamental_or_essential_matrix, \
+    compute_P2_from_P1, linear_triangulation
 from transformations import euclidean_to_homogeneous
 from linalg import decompose_projection_matrix
 
@@ -38,26 +39,10 @@ def reconstruct(img1_path, img2_path, inrtinsics):
     E = compute_fundamental_or_essential_matrix(points1n, points2n, compute_essential=True)
     
     # Assuming the first camera is at the origin
-    P1 = np.eye(3, 4)
-    
-    # Delete all the code below this line
-    P2s = compute_P_from_essential(E)
+    P1 = np.eye(3, 4)    
+    P2 = compute_P2_from_P1(E, P1, points1n[:, 0], points2n[:, 0])
 
-    ind = -1
-    for i, P2 in enumerate(P2s):
-        # Find the correct camera parameters
-        d1 = reconstruct_one_point(
-            points1n[:, 0], points2n[:, 0], P1, P2)
-    
-        # Convert P2 from camera view to world view
-        P2_homogenous = np.linalg.inv(np.vstack([P2, [0, 0, 0, 1]]))
-        d2 = np.dot(P2_homogenous[:3, :4], d1)
-    
-        if d1[2] > 0 and d2[2] > 0:
-            ind = i
-
-    P2 = np.linalg.inv(np.vstack([P2s[ind], [0, 0, 0, 1]]))[:3, :4]
-    tripoints3d = linear_triangulation(points1n, points2n, P1, P2)
+    triangulated_points = linear_triangulation(points1n, points2n, P1, P2)
     
     # Display feature correspondences
     fig, ax = plt.subplots(1, 2)
@@ -73,7 +58,7 @@ def reconstruct(img1_path, img2_path, inrtinsics):
     fig = plt.figure()
     fig.suptitle('3D reconstructed', fontsize=16)
     ax = fig.add_subplot(projection='3d')
-    ax.plot(tripoints3d[0], tripoints3d[1], tripoints3d[2], 'b.')
+    ax.plot(triangulated_points[0], triangulated_points[1], triangulated_points[2], 'b.')
     ax.set_xlabel('x axis')
     ax.set_ylabel('y axis')
     ax.set_zlabel('z axis')
