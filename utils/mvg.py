@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 
-from linalg import find_null_space, skew
+from utils.linalg import find_null_space, skew
 
 # TODO Check how this works
 def correspondance_matrix(p1, p2):
@@ -71,7 +71,7 @@ def find_sift_correspondences(img1, img2, fit_homography=True):
     Given two images, find SIFT correspondences between them. 
     Optionally, fit a homography to the matches. The output is a tuple of two 2xN arrays.
     '''
-    sift = cv2.xfeatures2d.SIFT_create()
+    sift = cv2.SIFT_create()
 
     # find the keypoints and descriptors with SIFT
     kp1, des1 = sift.detectAndCompute(cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY), None)
@@ -183,4 +183,30 @@ def compute_P2_from_P1(E, P1, point1n, point2n):
 
     P2 = np.linalg.inv(np.vstack([P2s[ind], [0, 0, 0, 1]]))[:3, :4]
     return P2
+        
+def compute_correspondances_p2_from_p1(p1, E, intrinsics):
+    """
+    Given the essential matrix E, the pixel points from the first camera,
+    and the intrinsic camera matrix, compute the pixel correspondances
+    in the second camera.
+    """
+    assert p1.shape[0] == 3
     
+    # Calculate the fundamental matrix
+    F = np.dot(np.linalg.inv(intrinsics).T, np.dot(E, np.linalg.inv(intrinsics))) 
+    
+    lines = cv2.computeCorrespondEpilines(p1[:2, :].T.reshape(-1, 1, 2), 1, F)
+    lines = lines.reshape(-1, 3).T
+    
+    for line in lines:
+        a, b, c = line
+        
+        x_range = intrinsics[0, 2]*2
+        line_points = []
+        for x in range(x_range):
+            y = int(-(c + a * x) / b)            
+            if 0 <= y < intrinsics[1, 2]*2:
+                line_points.append([x, y])
+            
+    line_points_np = np.array(line_points).T
+    return line_points_np

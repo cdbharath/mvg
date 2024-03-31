@@ -3,10 +3,10 @@ import scipy
 from matplotlib import pyplot as plt
 import cv2
 
-from mvg import find_sift_correspondences, compute_fundamental_or_essential_matrix, \
+from utils.mvg import find_sift_correspondences, compute_fundamental_or_essential_matrix, \
     compute_P2_from_P1, linear_triangulation
-from transformations import euclidean_to_homogeneous
-from linalg import decompose_projection_matrix
+from utils.transformations import euclidean_to_homogeneous
+from utils.linalg import decompose_projection_matrix
 
 def load_ppm(file):
     '''
