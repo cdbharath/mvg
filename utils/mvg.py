@@ -184,29 +184,83 @@ def compute_P2_from_P1(E, P1, point1n, point2n):
     P2 = np.linalg.inv(np.vstack([P2s[ind], [0, 0, 0, 1]]))[:3, :4]
     return P2
         
-def compute_correspondances_p2_from_p1(p1, E, intrinsics):
+def calculate_epipolar_lines(points, E, intrinsics):
     """
-    Given the essential matrix E, the pixel points from the first camera,
-    and the intrinsic camera matrix, compute the pixel correspondances
-    in the second camera.
+    Calculate epipolar lines given the fundamental matrix F
+    :param points: 2D points in homogeneous coordinates. Shape (3 x n)
+    :param F: Fundamental matrix. Shape (3 x 3)
+    :returns Epipolar lines. Shape (3 x n)
     """
-    assert p1.shape[0] == 3
+    assert points.shape[0] == 3
+    F = np.dot(np.linalg.inv(intrinsics.T), np.dot(E, np.linalg.inv(intrinsics)))
+    return np.dot(F, points)
+
+def normalized_cross_correlation(patch1, patch2):
+    """
+    Calculate the normalized cross correlation between two image patches
+    """
+    patch1_norm = (patch1 - np.mean(patch1)) / np.std(patch1)
+    patch2_norm = (patch2 - np.mean(patch2)) / np.std(patch2)
+    return np.sum(patch1_norm*patch2_norm) / np.sqrt(np.sum(patch1_norm**2) * np.sum(patch2_norm**2))
+
+# TODO implement gaussian filter
+def block_matching(px1, line2, img1, img2, block_size=25, search_window=50, stride=5):
+    """
+    Perform block matching between two images (slambook2, p. 226)
+    :param px1: Pixel coordinate in the first image
+    :param line2: Epipolar line in the second image
+    :param img1, img2: Images to perform block matching on
+    :param block_size: Size of the block
+    :param search_window: Size of the search window
+    :returns px2: Corresponding pixel coordinate in the second image
+    :returns None: If no corresponding point is found
+    """
+    assert img1.shape == img2.shape
+    assert px1.shape == (2,)
+    assert line2.shape[0] == 3
+    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
     
-    # Calculate the fundamental matrix
-    F = np.dot(np.linalg.inv(intrinsics).T, np.dot(E, np.linalg.inv(intrinsics))) 
+    # Get pixel coordinates from the epipolar line
+    y_vals = np.arange(img2.shape[0])
+    x_vals = (-line2[1] * y_vals - line2[2]) / line2[0]
+    valid_indices = np.logical_and(x_vals >= 0, x_vals < img2.shape[1])
+    y_vals = y_vals[valid_indices]
+    x_vals = x_vals[valid_indices]
     
-    lines = cv2.computeCorrespondEpilines(p1[:2, :].T.reshape(-1, 1, 2), 1, F)
-    lines = lines.reshape(-1, 3).T
+    # Get the block from the first image
+    A = img1[int(px1[1] - block_size/2):int(px1[1] + block_size/2), 
+             int(px1[0] - block_size/2):int(px1[0] + block_size/2)]
     
-    for line in lines:
-        a, b, c = line
+    if A.shape != (block_size, block_size):
+        return None
         
-        x_range = intrinsics[0, 2]*2
-        line_points = []
-        for x in range(x_range):
-            y = int(-(c + a * x) / b)            
-            if 0 <= y < intrinsics[1, 2]*2:
-                line_points.append([x, y])
-            
-    line_points_np = np.array(line_points).T
-    return line_points_np
+    # Perform block matching
+    max_ccr_score = 0
+    max_x = 0
+    max_y = 0
+    for i in range(0, len(y_vals), stride):
+        y_val = y_vals[i]
+        x_val = x_vals[i]
+                                        
+        for u in range(-search_window//2, search_window//2, stride):
+            for v in range(-search_window//2, search_window//2, stride):
+                y_min = int(y_val - block_size/2 + u)
+                y_max = int(y_val + block_size/2 + u)
+                x_min = int(x_val - block_size/2 + v)
+                x_max = int(x_val + block_size/2 + v)                
+                B = img2[y_min:y_max, x_min:x_max]
+                
+                if B.shape != (block_size, block_size):
+                    continue
+                    
+                ccr_score = normalized_cross_correlation(A, B)
+                if ccr_score > max_ccr_score:
+                    max_x = x_val + v
+                    max_y = y_val + u
+                    max_ccr_score = max(ccr_score, max_ccr_score)
+    
+    if max_ccr_score > 0:
+        return np.array([max_x, max_y])
+    
+    return None

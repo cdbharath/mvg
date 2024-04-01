@@ -43,7 +43,7 @@ def reconstruct(img1_path, img2_path, intrinsics):
     P2 = compute_P2_from_P1(E, P1, points1n[:, 0], points2n[:, 0])
 
     triangulated_points = linear_triangulation(points1n, points2n, P1, P2)    
-    return triangulated_points, (img1, img2, points1, points2, E)
+    return triangulated_points, (img1, img2, points1, points2, E, P1, P2)
 
 
 if __name__ == '__main__':
@@ -61,7 +61,7 @@ if __name__ == '__main__':
         [0,    0,    1]])
         
     triangulated_points, correspondances = reconstruct('images/dino/viff.000.ppm', 'images/dino/viff.001.ppm', intrinsics)
-    img1, img2, points1, points2, _ = correspondances
+    img1, img2, points1, points2, _, _, _ = correspondances
     
     # Display feature correspondences
     fig, ax = plt.subplots(1, 2)
