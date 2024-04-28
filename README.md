@@ -1,1 +1,1 @@
-# mvg
+# Multi View Geometry from scratch
