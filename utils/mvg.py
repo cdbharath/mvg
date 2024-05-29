@@ -3,12 +3,12 @@ import cv2
 
 from utils.linalg import find_null_space, skew
 
-# TODO Check how this works
-def correspondance_matrix(p1, p2):
+def equation_matrix(p1, p2):
     '''
     Given two sets of points x1, x2, return the correspondance matrix A
     Each row in the A matrix is constructed as
     [x'*x, x'*y, x', y'*x, y'*y, y', x, y, 1]
+    keeping in mind that X'.T * F * X = 0
     '''
     p1x, p1y = p1[:2]
     p2x, p2y = p2[:2]
@@ -38,7 +38,7 @@ def scale_points(points):
     
     return adjusted_points, scale_matrix
 
-def compute_fundamental_or_essential_matrix(x1, x2, compute_essential=False):
+def compute_fundamental_or_essential_matrix(x1, x2, compute_essential=False, intrinsics1=None, intrinsics2=None):
     '''
     Compute the fundamental or essential matrix given 3xN homogeneous corresponding points 
     x1, x2 using the 8-point algorithm.
@@ -51,20 +51,56 @@ def compute_fundamental_or_essential_matrix(x1, x2, compute_essential=False):
     x1, scale_matrix1 = scale_points(x1)
     x2, scale_matrix2 = scale_points(x2)
     
-    A = correspondance_matrix(x1, x2)
+    A = equation_matrix(x1, x2)
     F = find_null_space(A).reshape(3, 3)
     
     # Make F rank 2 by zeroing out the smallest singular value
     U, S, Vt = np.linalg.svd(F)
     S[-1] = 0
+    F = np.dot(U, np.dot(np.diag(S), Vt))
+    
     if compute_essential:
+        if intrinsics1 is None and intrinsics2 is None:
+            print("Intrinsics not provided. Cannot compute essential matrix.")
+            exit(1)
+        
+        F = np.dot(intrinsics1.T, np.dot(F, intrinsics2))
+    
+        U, S, Vt = np.linalg.svd(F)
         S = np.diag([1, 1, 0])
-    F = np.dot(U, np.dot(S, Vt))
+        F = np.dot(U, np.dot(S, Vt))
+    else: 
+        S = np.diag(S)
+        F = np.dot(U, np.dot(S, Vt))
     
     # Reverse the scaling. We know that p1.T * F * p2 = 0
     F = np.dot(scale_matrix1.T, np.dot(F, scale_matrix2))
     return F/F[2, 2]
 
+# TODO behavior is not as expected
+def compute_f_or_e_ransac(x1, x2, compute_essential=False, intrinsics1=None, intrinsics2=None, threshold=0.1, iterations=500):
+    '''
+    Compute the fundamental or essential matrix using RANSAC
+    '''
+    assert x1.shape == x2.shape
+    assert x1.shape[0] == 3
+    assert x2.shape[0] == 3
+            
+    for i in range(iterations):
+        # Randomly sample 8 points
+        indices = np.random.choice(x1.shape[1], 8, replace=False)
+        F = compute_fundamental_or_essential_matrix(x1[:, indices], x2[:, indices], compute_essential, intrinsics1, intrinsics2)
+        
+        # Calculate the error
+        error = np.abs(np.diag(np.dot(x1.T, np.dot(F, x2))))
+        inliers = error < threshold
+        
+        if np.sum(inliers) > 0.7 * x1.shape[1]:
+            print("Computed F/E using RANSAC")
+            return F
+    
+    print("RANSAC failed to find F/E")
+    return compute_fundamental_or_essential_matrix(x1, x2, compute_essential, intrinsics1, intrinsics2)
 
 def find_sift_correspondences(img1, img2, fit_homography=True):
     '''
@@ -87,7 +123,7 @@ def find_sift_correspondences(img1, img2, fit_homography=True):
     # Apply Lowe's SIFT matching ratio test
     good = []
     for m, n in matches:
-        if m.distance < 0.8 * n.distance:
+        if m.distance < 0.5 * n.distance:
             good.append(m)
 
     src_pts = np.asarray([kp1[m.queryIdx].pt for m in good])
@@ -103,6 +139,14 @@ def find_sift_correspondences(img1, img2, fit_homography=True):
         dst_pts = dst_pts[mask == 1]
 
     return src_pts.T, dst_pts.T
+
+def track_features(img1, img2, points):
+    """
+    Track features between two images
+    """
+    lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+    new_points, status, _ = cv2.calcOpticalFlowPyrLK(img1, img2, points, None, **lk_params)
+    return new_points, status
 
 def triangulate_point(pt1, pt2, m1, m2):
     """

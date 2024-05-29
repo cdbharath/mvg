@@ -21,6 +21,7 @@ def normalize_rotation_matrix(R):
 def rq_decomposition(M):
     '''
     Given matrix M, perform RQ decomposition such that M = RQ
+    Note: np.flipud and Mat[::-1, :] are the same 
     '''
     Q, R = np.linalg.qr(np.flipud(M).T)
     R = np.flipud(R.T)
@@ -39,11 +40,14 @@ def decompose_projection_matrix(P):
     
     # make diagonal of K positive
     T = np.diag(np.sign(np.diag(K)))
-    if np.linalg.det(T) < 0:
-        T[1, 1] *= -1
 
     K = np.dot(K, T)
     R = np.dot(T, R)  # T is its own inverse
+    
+    if np.linalg.det(R) < 0:
+        R = -R
+    
+    # TODO Can I directly use P[:, :3] here instead of np.dot(K, R)? 
     t = np.dot(np.linalg.inv(np.dot(K, R)), P[:, 3])
     
     K = K/K[2, 2]
