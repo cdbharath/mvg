@@ -7,6 +7,17 @@ import os
 import matplotlib
 matplotlib.use('TkAgg')
 
+def load_ppm(file):
+    '''
+    Load a PPM file as a numpy array
+    '''
+    with open(file, 'rb') as f:
+        assert f.readline() == b'P6\n'
+        width, height = map(int, f.readline().split())
+        assert f.readline() == b'255\n'
+        img = np.fromfile(f, dtype=np.uint8).reshape(height, width, 3)
+    return img
+
 def find_features(img0, img1):
     """
     Find feature correspondences between two images
@@ -28,9 +39,9 @@ def find_features(img0, img1):
     pts0 = np.float32([kp0[m.queryIdx].pt for m in good])
     pts1 = np.float32([kp1[m.trainIdx].pt for m in good])
     
-    # _, mask = cv2.findHomography(pts0, pts1, cv2.RANSAC, 100.0)
-    # pts0 = pts0[mask.ravel() == 1]
-    # pts1 = pts1[mask.ravel() == 1]
+    _, mask = cv2.findHomography(pts0, pts1, cv2.RANSAC, 100.0)
+    pts0 = pts0[mask.ravel() == 1]
+    pts1 = pts1[mask.ravel() == 1]
 
     return pts0, pts1
 
@@ -78,13 +89,15 @@ def common_points(pts1, pts2):
     return np.array(idx1), np.array(idx2)
 
 if __name__ == "__main__":
-    dataset_dir = "/home/bharath/Documents/SLAM/dataset/GustavIIAdolf/"
-    image_names = sorted(os.listdir(dataset_dir))
-        
-    image1_path = dataset_dir + image_names[0]
-    image2_path = dataset_dir + image_names[1]
-    img1 = cv2.imread(image1_path)
-    img2 = cv2.imread(image2_path)
+    # dataset_dir = "/home/bharath/Documents/SLAM/dataset/GustavIIAdolf/"
+    # image_names = sorted(os.listdir(dataset_dir))
+    # img1 = cv2.imread(dataset_dir + image_names[0])
+    # img2 = cv2.imread(dataset_dir + image_names[1])
+
+    dataset_dir = "../images/dino/"
+    image_names = ['viff.' + str(i).zfill(3) + '.ppm' for i in range(15)]        
+    img1 = load_ppm(dataset_dir + image_names[0])
+    img2 = load_ppm(dataset_dir + image_names[1])
     
     intrinsics = np.array([[2393.952166119461, -3.410605131648481e-13, 932.3821770809047], [0, 2398.118540286656, 628.2649953288065], [0, 0, 1]])    
     
@@ -127,9 +140,12 @@ if __name__ == "__main__":
     triangulated_points_prev = np.copy(triangulated_points)
     
     for i in range(2, len(image_names)):
+        if i == 15:
+            break
         print("-----------------------------")
         print(f"Processing image {i}/{len(image_names)}")
-        imgn = cv2.imread(dataset_dir + image_names[i])
+        # imgn = cv2.imread(dataset_dir + image_names[i])
+        imgn = load_ppm(dataset_dir + image_names[i])
         
         # Find feature correspondences between two images
         img_pts_, img_ptsn = find_features(img_prev, imgn)
