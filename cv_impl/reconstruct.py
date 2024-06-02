@@ -8,6 +8,9 @@ import matplotlib
 matplotlib.use('TkAgg')
 
 def find_features(img0, img1):
+    """
+    Find feature correspondences between two images
+    """
     img0gray = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
     img1gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
 
@@ -32,6 +35,9 @@ def find_features(img0, img1):
     return pts0, pts1
 
 def reprojection_error(X, pts, extrinsics, intrinsics):
+    """
+    Calculate reprojection error
+    """
     R = extrinsics[:3, :3]
     t = extrinsics[:3, 3]
     r, _ = cv2.Rodrigues(R)
@@ -44,6 +50,9 @@ def reprojection_error(X, pts, extrinsics, intrinsics):
     return error, p
 
 def PnP(X, pts1, intrinsics, d, pts0):
+    """
+    Solve PnP problem
+    """
     ret, rvecs, t, inliers = cv2.solvePnPRansac(X, pts1, intrinsics, d, cv2.SOLVEPNP_ITERATIVE)
     R, _ = cv2.Rodrigues(rvecs)
 
@@ -54,7 +63,10 @@ def PnP(X, pts1, intrinsics, d, pts0):
 
     return R, t, X, pts0, pts1
 
-def common_points(pts1, pts2):    
+def common_points(pts1, pts2):
+    """
+    Find common points between two sets of points
+    """
     idx1 = []
     idx2 = []
     for i in range(len(pts1)):
@@ -100,10 +112,11 @@ if __name__ == "__main__":
     # Calculate reprojection error
     reprojection_err, reprojected_pts = reprojection_error(triangulated_points[:3].T, img_pts1, extrinsics, intrinsics)
     
-    
+    # Solve PnP problem to refine the pose and triangulated points
     inital_extrinsics = np.zeros((5, 1), dtype=np.float32)
     R, t, triangulated_points, img_pts1, img_pts2 = PnP(triangulated_points[:3].T, img_pts2, intrinsics, inital_extrinsics, img_pts1)
     
+    # Track poses and triangulated points
     poses = [P1, P2]
     agg_triangulated_points = np.copy(triangulated_points)
     
@@ -118,25 +131,29 @@ if __name__ == "__main__":
         print(f"Processing image {i}/{len(image_names)}")
         imgn = cv2.imread(dataset_dir + image_names[i])
         
+        # Find feature correspondences between two images
         img_pts_, img_ptsn = find_features(img_prev, imgn)
         print(f"Feature points: {len(img_pts_)}")
         
+        # Find common points between the previous and current features
         common_idx_prev, common_idx_curr = common_points(img_pts_prev, img_pts_)
         common_img_pts_ = img_pts_[common_idx_curr]
         common_img_ptsn = img_ptsn[common_idx_curr]
         common_triangulated_points = triangulated_points_prev[common_idx_prev]
         print(f"Common points: {len(common_img_ptsn)}")
         
+        # Solve PnP problem to recover the pose
         inital_extrinsics = np.zeros((5, 1), dtype=np.float32)
-        print(common_triangulated_points.shape, common_img_ptsn.shape, common_img_pts_.shape)
         R, t, triangulated_points, common_img_pts_, common_img_ptsn = PnP(common_triangulated_points, common_img_ptsn, intrinsics, inital_extrinsics, common_img_pts_)    
         extrinsics_new = np.hstack((R, t))
         Pnew = np.dot(intrinsics, extrinsics_new)
         
+        # Triangulate points given the camera matrices and feature correspondences
         triangulated_points = cv2.triangulatePoints(Pprev, Pnew, img_pts_.T, img_ptsn.T)
         triangulated_points /= triangulated_points[3]
         print(f"Triangulated points: {triangulated_points.shape}")
         
+        # Calculate reprojection error
         reprojection_err, reprojected_pts = reprojection_error(triangulated_points[:3].T, img_ptsn, extrinsics, intrinsics)
         triangulated_points = triangulated_points[:3].T
         print(f"Reprojection error: {reprojection_err}")
