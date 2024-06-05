@@ -1,11 +1,86 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import glob
-import os
+import pangolin
+from OpenGL.GL import glEnable, glClear, glClearColor, glPointSize, glBegin, glEnd, glColor3f, glVertex3f
+from OpenGL.GL import GL_DEPTH_TEST, GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT, GL_POINTS
+from OpenGL.GL import glPushMatrix, glPopMatrix, glMultMatrixd, GL_LINES, glLineWidth
 
 import matplotlib
 matplotlib.use('TkAgg')
+    
+def draw_camera(pose):
+    """ Draw a simple camera frustum at the given pose """
+    sz = 0.01
+    line_width = 2.0
+    fx = 400
+    fy = 400
+    cx = 512
+    cy = 384
+    width = 1080
+    height = 768
+    
+    glPushMatrix()
+    pose = np.linalg.inv(pose)
+    glMultMatrixd(pose.T.flatten())
+    
+    glLineWidth(line_width)
+    glBegin(GL_LINES)
+    glVertex3f(0, 0, 0)
+    glVertex3f(sz * (0 - cx) / fx, sz * (0 - cy) / fy, sz)
+    glVertex3f(0, 0, 0)
+    glVertex3f(sz * (0 - cx) / fx, sz * (height - 1 - cy) / fy, sz)
+    glVertex3f(0, 0, 0)
+    glVertex3f(sz * (width - 1 - cx) / fx, sz * (height - 1 - cy) / fy, sz)
+    glVertex3f(0, 0, 0)
+    glVertex3f(sz * (width - 1 - cx) / fx, sz * (0 - cy) / fy, sz)
+    glVertex3f(sz * (width - 1 - cx) / fx, sz * (0 - cy) / fy, sz)
+    glVertex3f(sz * (width - 1 - cx) / fx, sz * (height - 1 - cy) / fy, sz)
+    glVertex3f(sz * (width - 1 - cx) / fx, sz * (height - 1 - cy) / fy, sz)
+    glVertex3f(sz * (0 - cx) / fx, sz * (height - 1 - cy) / fy, sz)
+    glVertex3f(sz * (0 - cx) / fx, sz * (height - 1 - cy) / fy, sz)
+    glVertex3f(sz * (0 - cx) / fx, sz * (0 - cy) / fy, sz)
+    glVertex3f(sz * (0 - cx) / fx, sz * (0 - cy) / fy, sz)
+    glVertex3f(sz * (width - 1 - cx) / fx, sz * (0 - cy) / fy, sz);        
+    glEnd()
+
+    glPopMatrix()    
+    
+def display_3d_points(points, colors, Ps, scale=0.5):
+    """ Display 3D points and cameras using Pangolin"""
+    pangolin.CreateWindowAndBind('3D Points Display', 640, 480)
+    glEnable(GL_DEPTH_TEST)
+    
+    # Define projection and initial camera pose
+    projection = pangolin.ProjectionMatrix(640, 480, 420, 420, 320, 240, 0.01, 100)
+    view = pangolin.ModelViewLookAt(0, 0, 0, 0, 0, 1, pangolin.AxisDirection.AxisY)
+    scam = pangolin.OpenGlRenderState(projection, view)
+    handler = pangolin.Handler3D(scam)
+    
+    viewport = pangolin.CreateDisplay()
+    viewport.SetBounds(0.0, 1.0, 0.0, 1.0, -640/480)
+    viewport.SetHandler(handler)
+    
+    while not pangolin.ShouldQuit():
+        # Clear screen and activate view
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        glClearColor(0.0, 0.0, 0.0, 1.0)
+        viewport.Activate(scam)
+        
+        # Render 3D points
+        glPointSize(2.0)  
+        glBegin(GL_POINTS)
+        for i in range(points.shape[0]):
+            point = points[i]
+            color = colors[i]/255
+            glColor3f(color[0], color[1], color[2])
+            glVertex3f(point[0], point[1], point[2])
+        glEnd()
+        
+        for P in Ps:
+            draw_camera(P)
+        
+        pangolin.FinishFrame()
 
 def load_ppm(file):
     '''
@@ -95,7 +170,7 @@ if __name__ == "__main__":
     # img2 = cv2.imread(dataset_dir + image_names[1])
 
     dataset_dir = "../images/dino/"
-    image_names = ['viff.' + str(i).zfill(3) + '.ppm' for i in range(15)]        
+    image_names = ['viff.' + str(i).zfill(3) + '.ppm' for i in range(36)]        
     img1 = load_ppm(dataset_dir + image_names[0])
     img2 = load_ppm(dataset_dir + image_names[1])
     
@@ -114,7 +189,7 @@ if __name__ == "__main__":
     img_pts1 = img_pts1[mask.ravel() > 0]
     img_pts2 = img_pts2[mask.ravel() > 0]
     
-    P1 = np.eye(3, 4)
+    P1 = np.dot(intrinsics, np.eye(3, 4))
     extrinsics = np.hstack((R, np.expand_dims(np.dot(R, t.ravel()), axis=1)))
     P2 = np.dot(intrinsics, extrinsics)
     
@@ -130,8 +205,10 @@ if __name__ == "__main__":
     R, t, triangulated_points, img_pts1, img_pts2 = PnP(triangulated_points[:3].T, img_pts2, intrinsics, inital_extrinsics, img_pts1)
     
     # Track poses and triangulated points
-    poses = [P1, P2]
+    projection_matrices = [P1, P2]   
+    poses = [np.eye(4), np.vstack((extrinsics, np.array([0, 0, 0, 1])))]
     agg_triangulated_points = np.copy(triangulated_points)
+    agg_pixels_colors = np.copy(img2[img_pts2[:, 1].astype(int), img_pts2[:, 0].astype(int)])
     
     Pprevprev = np.copy(P1)
     Pprev = np.copy(P2)
@@ -140,8 +217,6 @@ if __name__ == "__main__":
     triangulated_points_prev = np.copy(triangulated_points)
     
     for i in range(2, len(image_names)):
-        if i == 15:
-            break
         print("-----------------------------")
         print(f"Processing image {i}/{len(image_names)}")
         # imgn = cv2.imread(dataset_dir + image_names[i])
@@ -150,7 +225,6 @@ if __name__ == "__main__":
         # Find feature correspondences between two images
         img_pts_, img_ptsn = find_features(img_prev, imgn)
         print(f"Feature points: {len(img_pts_)}")
-        
         # Find common points between the previous and current features
         common_idx_prev, common_idx_curr = common_points(img_pts_prev, img_pts_)
         common_img_pts_ = img_pts_[common_idx_curr]
@@ -179,8 +253,10 @@ if __name__ == "__main__":
         Pprevprev = np.copy(Pprev)
         img_pts_prev = np.copy(img_ptsn)
         triangulated_points_prev = np.copy(triangulated_points)
-        poses.append(Pnew)
+        projection_matrices.append(Pnew)
+        poses.append(np.vstack((extrinsics_new, np.array([0, 0, 0, 1]))))
         agg_triangulated_points = np.vstack((agg_triangulated_points, triangulated_points))
+        agg_pixels_colors = np.vstack((agg_pixels_colors, imgn[img_ptsn[:, 1].astype(int), img_ptsn[:, 0].astype(int)]))
         img_prev = np.copy(imgn)
     
     # # Display feature correspondences
@@ -194,20 +270,23 @@ if __name__ == "__main__":
     # fig.show()
     
     # Display reconstructed 3D points
-    triangulated_points = agg_triangulated_points[:, :3] - np.mean(agg_triangulated_points[:, :3], axis=0)
-    triangulated_points = triangulated_points.T
+    triangulated_points = agg_triangulated_points[:, :3].T
+    scale = 0.05
+    triangulated_points *= scale
+    for i in range(len(poses)):
+        poses[i][:3, 3] *= scale
+    display_3d_points(triangulated_points.T, agg_pixels_colors, poses)
 
-    limit = 0.1
-    
-    fig = plt.figure()
-    fig.suptitle('3D reconstructed', fontsize=16)
-    ax = fig.add_subplot(projection='3d')
-    ax.plot(triangulated_points[0], triangulated_points[1], triangulated_points[2], 'b.')
-    ax.set_xlabel('x axis')
-    ax.set_ylabel('y axis')
-    ax.set_zlabel('z axis')
-    ax.set_xlim(-limit, limit)
-    ax.set_ylim(-limit, limit)
-    ax.set_zlim(-limit, limit)
-    ax.view_init(elev=135, azim=90)
-    plt.show()    
+    # limit = 0.1    
+    # fig = plt.figure()
+    # fig.suptitle('3D reconstructed', fontsize=16)
+    # ax = fig.add_subplot(projection='3d')
+    # ax.plot(triangulated_points[0], triangulated_points[1], triangulated_points[2], 'b.')
+    # ax.set_xlabel('x axis')
+    # ax.set_ylabel('y axis')
+    # ax.set_zlabel('z axis')
+    # ax.set_xlim(-limit, limit)
+    # ax.set_ylim(-limit, limit)
+    # ax.set_zlim(-limit, limit)
+    # ax.view_init(elev=135, azim=90)
+    # plt.show()    
