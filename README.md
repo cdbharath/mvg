@@ -1,4 +1,4 @@
 # Multi View Geometry from scratch
 
-#### Sparse 3D reconstructon
-![alt text](sparse_reconstruction.gif "Sparse Reconstruction")
+This is an effort to implement Structure From Motion with only numpy functions (as much as possible) for learning purposes. 
+![alt text](sfm.jpg "Sparse Reconstruction and Structure From Motion")
